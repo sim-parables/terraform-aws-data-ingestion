@@ -291,7 +291,7 @@ module "aws_lambda_function" {
   function_handler = "http_handler"
   sns_topic_arn    = module.sns_topic.sns_topic_arn
   kms_key_arn      = module.data_lake.kms_key_arn
-  bronze_bucket_id = module.data_lake.bronze_bucket_id
+  bucket_ids       = [module.data_lake.bronze_bucket_id]
 
   function_contents = [
     {

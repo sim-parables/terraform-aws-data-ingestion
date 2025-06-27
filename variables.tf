@@ -21,9 +21,9 @@ variable "function_handler" {
   description = "AWS Lambda Function Source Handler Function Name"
 }
 
-variable "bronze_bucket_id" {
-  type        = string
-  description = "Target S3 Bucket Name"
+variable "bucket_ids" {
+  type        = list(string)
+  description = "List of Target S3 Bucket Names"
 }
 
 variable "kms_key_arn" {

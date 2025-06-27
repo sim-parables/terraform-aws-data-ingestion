@@ -194,17 +194,19 @@ data "aws_iam_policy_document" "logs" {
   provider = aws.auth_session
 
   statement {
-    sid    = "${replace(title(replace("${var.function_name}", "-", " ")), " ", "")}BronzeS3PolicyDoc"
+    sid    = "${replace(title(replace("${var.function_name}", "-", " ")), " ", "")}S3PolicyDoc"
     effect = "Allow"
     actions = [
       "s3:GetObject",
       "s3:PutObject"
     ]
 
-    resources = [
-      "arn:aws:s3:::${var.bronze_bucket_id}",
-      "arn:aws:s3:::${var.bronze_bucket_id}/*",
-    ]
+    resources = flatten([
+      for bucket_id in var.bucket_ids : [
+        "arn:aws:s3:::${bucket_id}",
+        "arn:aws:s3:::${bucket_id}/*"
+      ]
+    ])
   }
 
   statement {
