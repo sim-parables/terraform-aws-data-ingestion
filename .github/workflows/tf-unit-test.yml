@@ -1,0 +1,14 @@
+name: 'Terraform Unit Tests'
+
+on:
+  push:
+
+jobs:
+  terraform-unit-tests:
+    uses: sim-parables/github-workflows-reusable/.github/workflows/tf-unit-test.yml@AWSv1
+    name: 'Terraform Unit Tests'
+    secrets: inherit
+    with:
+      ACT_MODE: ${{ !!github.event.act }}
+      SKIP_CHECKS: |
+        CKV_AWS_273,CKV_AWS_356,CKV_AWS_109,CKV_AWS_144,CKV_AWS_18,CKV_AWS_117,CKV_AWS_272,CKV_AWS_338,CKV_AWS_300,CKV_AWS_111,CKV_AWS_115,CKV2_AWS_62,CKV_AWS_158,CKV2_AWS_67

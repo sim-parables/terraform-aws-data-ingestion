@@ -1,0 +1,6 @@
+service_account_name    = "example-service-account"
+service_account_path    = "example-terraform"
+GITHUB_REPOSITORY_OWNER = "sim-parables"
+GITHUB_REPOSITORY       = "sim-parables/terraform-aws-data-ingestion"
+GITHUB_REF              = "refs/heads/main"
+GITHUB_ENV              = "production"

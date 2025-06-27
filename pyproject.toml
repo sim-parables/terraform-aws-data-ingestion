@@ -1,0 +1,7 @@
+[tool.pytest.ini_options]
+markers = [
+    "github: Github Action Workflow Test Marker",
+    "local: Local Development Test Marker",
+    "oidc: OIDC Test Marker",
+    "env: Environment Variable Test Marker",
+]

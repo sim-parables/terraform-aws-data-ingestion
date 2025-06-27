@@ -1,0 +1,109 @@
+name: 'Terraform Workflow Dispatch'
+
+on:
+  workflow_dispatch:
+    inputs:
+      terraform_operation:
+        description: "Terraform operation: plan, apply, destroy"
+        required: true
+        default: "plan"
+        type: choice
+        options:
+          - plan
+          - apply
+          - test
+          - destroy
+
+jobs:
+  reusable-env-vars:
+    runs-on: ubuntu-latest
+    outputs:
+      TF_VAR_OIDC_PROVIDER_ARN: "${{ steps.env_variables.outputs.TF_VAR_OIDC_PROVIDER_ARN }}"
+      TF_VAR_GITHUB_REPOSITORY_OWNER: "${{ steps.env_variables.outputs.TF_VAR_GITHUB_REPOSITORY_OWNER }}"
+      TF_VAR_GITHUB_REPOSITORY: "${{ steps.env_variables.outputs.TF_VAR_GITHUB_REPOSITORY }}"
+      TF_VAR_GITHUB_REF: "${{ steps.env_variables.outputs.TF_VAR_GITHUB_REF }}"
+      TF_VAR_GITHUB_ENV: "${{ steps.env_variables.outputs.TF_VAR_GITHUB_ENV }}"
+    steps:
+      - name: Encode Environment Variables
+        id: env_variables
+        env:
+          TF_VAR_OIDC_PROVIDER_ARN: "${{ secrets.AWS_OIDC_PROVIDER_ARN }}"
+          TF_VAR_GITHUB_REPOSITORY_OWNER: "${{ github.repository_owner }}"
+          TF_VAR_GITHUB_REPOSITORY: "${{ github.repository }}"
+          TF_VAR_GITHUB_REF: "${{ github.ref }}"
+          TF_VAR_GITHUB_ENV: production
+        run: |
+          echo "TF_VAR_OIDC_PROVIDER_ARN=$(echo $TF_VAR_OIDC_PROVIDER_ARN | base64 -w0 | base64 -w0)" >> $GITHUB_OUTPUT
+          echo "TF_VAR_GITHUB_REPOSITORY_OWNER=$(echo $TF_VAR_GITHUB_REPOSITORY_OWNER | base64 -w0 | base64 -w0)" >> $GITHUB_OUTPUT
+          echo "TF_VAR_GITHUB_REPOSITORY=$(echo $TF_VAR_GITHUB_REPOSITORY | base64 -w0 | base64 -w0)" >> $GITHUB_OUTPUT
+          echo "TF_VAR_GITHUB_REF=$(echo $TF_VAR_GITHUB_REF | base64 -w0 | base64 -w0)" >> $GITHUB_OUTPUT
+          echo "TF_VAR_GITHUB_ENV=$(echo $TF_VAR_GITHUB_ENV | base64 -w0 | base64 -w0)" >> $GITHUB_OUTPUT
+
+  terraform-dispatch-plan:
+    if: "${{ github.event.act || github.event.inputs.terraform_operation == 'plan' }}"
+    needs: [ reusable-env-vars ]
+    uses: sim-parables/github-workflows-reusable/.github/workflows/tf-dispatch-plan.yml@AWSv1
+    secrets:
+      AWS_CLIENT_ID: ${{ secrets.AWS_CLIENT_ID }}
+      AWS_CLIENT_SECRET: ${{ secrets.AWS_CLIENT_SECRET }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+      TF_API_TOKEN: ${{ secrets.TF_API_TOKEN }}
+      env_variables: |
+        TF_VAR_OIDC_PROVIDER_ARN="${{ needs.reusable-env-vars.outputs.TF_VAR_OIDC_PROVIDER_ARN }}"
+        TF_VAR_GITHUB_REPOSITORY_OWNER="${{ needs.reusable-env-vars.outputs.TF_VAR_GITHUB_REPOSITORY_OWNER }}"
+        TF_VAR_GITHUB_REPOSITORY="${{ needs.reusable-env-vars.outputs.TF_VAR_GITHUB_REPOSITORY }}"
+        TF_VAR_GITHUB_REF="${{ needs.reusable-env-vars.outputs.TF_VAR_GITHUB_REF }}"
+        TF_VAR_GITHUB_ENV="${{ needs.reusable-env-vars.outputs.TF_VAR_GITHUB_ENV }}"
+    with:
+      ACT_MODE: ${{ !!github.event.act }}
+      
+  terraform-dispatch-apply:
+    if: ${{ github.event.act || github.event.inputs.terraform_operation == 'apply' }}
+    needs: [ reusable-env-vars ]
+    uses: sim-parables/github-workflows-reusable/.github/workflows/tf-dispatch-apply.yml@AWSv1
+    secrets:
+      AWS_CLIENT_ID: ${{ secrets.AWS_CLIENT_ID }}
+      AWS_CLIENT_SECRET: ${{ secrets.AWS_CLIENT_SECRET }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+      TF_API_TOKEN: ${{ secrets.TF_API_TOKEN }}
+      env_variables: |
+        TF_VAR_OIDC_PROVIDER_ARN="${{ needs.reusable-env-vars.outputs.TF_VAR_OIDC_PROVIDER_ARN }}"
+        TF_VAR_GITHUB_REPOSITORY_OWNER="${{ needs.reusable-env-vars.outputs.TF_VAR_GITHUB_REPOSITORY_OWNER }}"
+        TF_VAR_GITHUB_REPOSITORY="${{ needs.reusable-env-vars.outputs.TF_VAR_GITHUB_REPOSITORY }}"
+        TF_VAR_GITHUB_REF="${{ needs.reusable-env-vars.outputs.TF_VAR_GITHUB_REF }}"
+        TF_VAR_GITHUB_ENV="${{ needs.reusable-env-vars.outputs.TF_VAR_GITHUB_ENV }}"
+    with:
+      ACT_MODE: ${{ !!github.event.act }}
+
+  terraform-dispatch-test:
+    if: ${{ github.event.act || github.event.inputs.terraform_operation == 'test' }}
+    needs: [ reusable-env-vars ]
+    uses: ./.github/workflows/reusable-test.yml
+    secrets:
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      TF_API_TOKEN: ${{ secrets.TF_API_TOKEN }}
+    with:
+      ACT_MODE: ${{ !!github.event.act }}
+      markers: ${{ !!github.event.act && 'local and env' || 'github and oidc'}}
+
+  terraform-dispatch-destroy:
+    if: ${{ github.event.act ||github.event.inputs.terraform_operation == 'destroy' }}
+    needs: [ reusable-env-vars ]
+    uses: sim-parables/github-workflows-reusable/.github/workflows/tf-dispatch-destroy.yml@AWSv1
+    secrets:
+      AWS_CLIENT_ID: ${{ secrets.AWS_CLIENT_ID }}
+      AWS_CLIENT_SECRET: ${{ secrets.AWS_CLIENT_SECRET }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+      TF_API_TOKEN: ${{ secrets.TF_API_TOKEN }}
+      env_variables: |
+        TF_VAR_OIDC_PROVIDER_ARN="${{ needs.reusable-env-vars.outputs.TF_VAR_OIDC_PROVIDER_ARN }}"
+        TF_VAR_GITHUB_REPOSITORY_OWNER="${{ needs.reusable-env-vars.outputs.TF_VAR_GITHUB_REPOSITORY_OWNER }}"
+        TF_VAR_GITHUB_REPOSITORY="${{ needs.reusable-env-vars.outputs.TF_VAR_GITHUB_REPOSITORY }}"
+        TF_VAR_GITHUB_REF="${{ needs.reusable-env-vars.outputs.TF_VAR_GITHUB_REF }}"
+        TF_VAR_GITHUB_ENV="${{ needs.reusable-env-vars.outputs.TF_VAR_GITHUB_ENV }}"
+    with:
+      ACT_MODE: ${{ !!github.event.act }}
+

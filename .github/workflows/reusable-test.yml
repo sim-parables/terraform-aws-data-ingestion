@@ -1,0 +1,163 @@
+name: '[Reusable] Blob Trigger Pytest'
+
+on:
+  workflow_call:
+    inputs:
+      ACT_MODE:
+        description: |
+          For running Github Action Workflows locally with Nektos act
+        required: true
+        type: boolean
+      markers:
+        description: |
+          PyTest Markers to select specific tests to work within Github Action Workflows
+        required: true
+        type: string
+      working_directory:
+        description: |
+          Working directory containing Terraform test scripts.
+        required: false
+        type: string
+        default: "./test"
+    
+    secrets:
+      AWS_REGION:
+        description: |
+          AWS Account Region
+        required: false
+      TF_API_TOKEN:
+        description: |
+          Terraform.io Access Token
+        required: true
+
+#Special permissions required for OIDC authentication
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  terraform-output:
+    name: Terraform Output
+    runs-on: ubuntu-latest
+    
+    defaults:
+        run:
+          working-directory: ${{ inputs.working_directory }}
+    
+    outputs:
+      TARGET_BUCKET: "${{ steps.tf-raw.outputs.TARGET_BUCKET }}"
+      API_GATEWAY_URL: "${{ steps.tf-raw.outputs.API_GATEWAY_URL }}"
+      API_GATEWAY_KEY: "${{ steps.tf-raw.outputs.API_GATEWAY_KEY }}"
+      CLIENT_ID: "${{ steps.tf-raw.outputs.CLIENT_ID}}"
+      CLIENT_SECRET: "${{ steps.tf-raw.outputs.CLIENT_SECRET}}"
+      ASSUME_ROLE_ARN: "${{ steps.tf-raw.outputs.ASSUME_ROLE_ARN}}"
+
+    steps:
+    # Checkout the repository to the GitHub Actions runner
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    # Install the latest version of the Terraform CLI
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+        terraform_wrapper: false
+    
+    - name: terraform init
+      run: terraform init
+
+    - name: terraform raw output
+      id: tf-raw
+      run: |
+        echo "::add-mask::$(terraform output -raw service_account_client_id)"
+        echo "::add-mask::$(terraform output -raw service_account_client_secret)"
+        echo "::add-mask::$(terraform output -raw api_gateway_key_value | base64 -w0 | base64 -w0)"
+        echo "::add-mask::$(terraform output -raw assume_role_arn | base64 -w0 | base64 -w0)"
+        echo "TARGET_BUCKET=$(terraform output -raw bronze_bucket_id)
+        API_GATEWAY_URL=$(terraform output -raw api_gateway_invoke_url)
+        API_GATEWAY_KEY=$(terraform output -raw api_gateway_key_value | base64 -w0 | base64 -w0)
+        ASSUME_ROLE_ARN=$(terraform output -raw assume_role_arn | base64 -w0 | base64 -w0)
+        CLIENT_ID=${{ !!inputs.ACT_MODE && '$(terraform output -raw service_account_client_id)' || 'null' }}
+        CLIENT_SECRET=${{ !!inputs.ACT_MODE && '$(terraform output -raw service_account_client_secret)' || 'null'}}" >> $GITHUB_OUTPUT
+  
+  terraform-test:
+    name: Terraform Test
+    needs: [ terraform-output ]
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    env:
+        TARGET_BUCKET: ${{ needs.terraform-output.outputs.TARGET_BUCKET }}
+        API_GATEWAY_URL: ${{ needs.terraform-output.outputs.API_GATEWAY_URL }}
+        AWS_ACCESS_KEY_ID: ${{ needs.terraform-output.outputs.CLIENT_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ needs.terraform-output.outputs.CLIENT_SECRET }}
+    
+    defaults:
+      run:
+        working-directory: "${{ inputs.working_directory }}/unit_test"
+    
+    steps:
+      - uses: actions/checkout@v4
+        
+      - name: Setup Python # Set Python version
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      
+      - uses: actions/github-script@v6
+        id: script
+        timeout-minutes: 10
+        with:
+          debug: true
+          script: |
+            const token = process.env['ACTIONS_ID_TOKEN_REQUEST_TOKEN']
+            const runtimeUrl = process.env['ACTIONS_ID_TOKEN_REQUEST_URL']
+            if ( token && runtimeUrl ) {
+              core.setOutput('TOKEN', token.trim())
+              core.setOutput('IDTOKENURL', runtimeUrl.trim())  
+
+              const idtoken = await core.getIDToken('sts.amazonaws.com')
+              core.setOutput('IDTOKEN', idtoken)
+            }
+      
+      - id: jwt_token
+        run: |
+          jwtd() {
+              if [[ -x $(command -v jq) ]]; then
+                  jq -R 'split(".") | .[0],.[1] | @base64d | fromjson' <<< "${1}"
+                  echo "Signature: $(echo "${1}" | awk -F'.' '{print $3}')"
+              fi
+          }
+          if ${{ steps.script.outputs.IDTOKEN != '' }}
+          then
+            jwtd "${{ steps.script.outputs.IDTOKEN }}"
+            echo "::add-mask::${{ steps.script.outputs.IDTOKEN }}"
+            echo "OIDC_TOKEN=${{ steps.script.outputs.IDTOKEN }}" >> $GITHUB_ENV
+          fi
+      
+      - name: Outputs Decode
+        id: decode
+        run: |
+          echo "::add-mask::$(echo ${{ needs.terraform-output.outputs.ASSUME_ROLE_ARN }} | base64 -di | base64 -di)"
+          echo "::add-mask::$(echo ${{ needs.terraform-output.outputs.API_GATEWAY_KEY }} | base64 -di | base64 -di)"
+          echo "ASSUME_ROLE=$(echo ${{ needs.terraform-output.outputs.ASSUME_ROLE_ARN }} | base64 -di | base64 -di)
+          API_GATEWAY_KEY=$(echo ${{ needs.terraform-output.outputs.API_GATEWAY_KEY }} | base64 -di | base64 -di)" >> $GITHUB_ENV
+                  
+      # Install pip and pytest
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest==8.4.1 s3fs==2025.5.1 fsspec==2025.5.1 uuid==1.30 boto3 requests==2.32.3
+
+      - name: Test with pytest
+        run: |
+          pytest -m "${{ inputs.markers }}" \
+            --doctest-modules \
+            --junitxml=junit/test-results.xml
+              
+      - name: Upload pytest test results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v3
+        with:
+          name: pytest-results
+          path: junit/test-results.xml
