@@ -17,7 +17,7 @@ terraform {
 ## Parameters:
 ## - `function_name`: AWS Lambda Function name.
 ## - `function_handler`: AWS Lambda Function source handler function name.
-## - `bronze_bucket_id`: S3 Bucket name for the bronze data layer.
+## - `bucket_ids`: List of S3 Bucket names for the data layers.
 ## - `function_runtime`: AWS Lambda Function runtime environment.
 ## - `kms_key_arn`: KMS encryption key ARN.
 ## - `sns_topic_arn`: SNS Topic ARN for Dead Letter Queue. 
@@ -32,7 +32,7 @@ module "aws_lambda_function" {
   function_handler               = var.function_handler
   sns_topic_arn                  = var.sns_topic_arn
   kms_key_arn                    = var.kms_key_arn
-  bronze_bucket_id               = var.bronze_bucket_id
+  bucket_ids                     = var.bucket_ids
   function_contents              = var.function_contents
   function_dependencies          = var.function_dependencies
   function_environment_variables = var.function_environment_variables
